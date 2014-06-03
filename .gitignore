@@ -1,1 +1,3 @@
 *.o
+fdfs_stress_test
+fdfs_nginx_stress_test
