@@ -1,0 +1,3 @@
+./fdfs_stress_test /etc/fdfs/client.conf create 1 262144
+./fdfs_stress_test /etc/fdfs/client.conf upload 160000 16 > upload.log
+./fdfs_stress_test /etc/fdfs/client.conf download fdfs_stress_test_file_list 1 > download_1.log

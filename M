@@ -1,0 +1,7 @@
+cc -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -g -O -DDEBUG_FLAG -DOS_LINUX -c thread_pool.c
+cc -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -g -O -DDEBUG_FLAG -DOS_LINUX -c ae.c
+cc -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -g -O -DDEBUG_FLAG -DOS_LINUX -c share_net.c -I../../common
+cc -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -g -O -DDEBUG_FLAG -DOS_LINUX -DIOEVENT_USE_EPOLL -march=i686 -o fdfs_stress_test fdfs_stress_test.c  \
+thread_pool.o ae.o share_net.o \
+../../common/hash.o ../../common/chain.o ../../common/shared_func.o ../../common/ini_file_reader.o ../../common/logger.o ../../common/sockopt.o ../../common/base64.o ../../common/sched_thread.o ../../common/http_func.o ../../common/md5.o ../../common/pthread_func.o ../../common/local_ip_func.o ../../common/avl_tree.o ../../common/connection_pool.o ../../common/fdfs_global.o ../../common/fdfs_http_shared.o ../../common/mime_file_parser.o ../../tracker/tracker_proto.o ../../tracker/fdfs_shared_func.o ../../storage/trunk_mgr/trunk_shared.o ../tracker_client.o ../client_func.o ../client_global.o ../storage_client.o -lpthread -ldl -rdynamic -I../ -I../../common -I../../tracker -I/usr/local/include
+cc -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -g -O -DDEBUG_FLAG -DOS_LINUX -o fdfs_nginx_stress_test fdfs_nginx_stress_test.c
