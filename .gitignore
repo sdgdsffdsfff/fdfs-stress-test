@@ -1,4 +1,5 @@
 *.o
 *.log
+*.swp
 fdfs_stress_test
 fdfs_nginx_stress_test
