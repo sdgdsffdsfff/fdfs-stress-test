@@ -396,7 +396,7 @@ static int upload_file_by_filename(char *local_filename)
 	}
 
 	*group_name = '\0';
-	if ((result=tracker_query_storage_store(pTrackerServer, \
+	/*if ((result=tracker_query_storage_store(pTrackerServer, \
 	                &storageServer, group_name, &store_path_index)) != 0)
 	{
 		fdfs_client_destroy();
@@ -404,10 +404,74 @@ static int upload_file_by_filename(char *local_filename)
 			"error no: %d, error info: %s\n", \
 			result, STRERROR(result));
 		return result;
+	}*/
+	ConnectionInfo *pStorageServer = &storageServer;
+	int *pstore_path_index = &store_path_index;
+		
+	TrackerHeader header;
+	char in_buff[sizeof(TrackerHeader) + \
+		TRACKER_QUERY_STORAGE_STORE_BODY_LEN];
+	bool new_connection;
+	ConnectionInfo *conn;
+	char *pInBuff;
+	int64_t in_bytes;
+
+	CHECK_CONNECTION(pTrackerServer, conn, result, new_connection);
+
+	memset(pStorageServer, 0, sizeof(ConnectionInfo));
+	pStorageServer->sock = -1;
+
+	memset(&header, 0, sizeof(header));
+	header.cmd = TRACKER_PROTO_CMD_SERVICE_QUERY_STORE_WITHOUT_GROUP_ONE;
+	if ((result=tcpsenddata_nb(conn->sock, &header, \
+			sizeof(header), g_fdfs_network_timeout)) != 0)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"send data to tracker server %s:%d fail, " \
+			"errno: %d, error info: %s", __LINE__, \
+			pTrackerServer->ip_addr, \
+			pTrackerServer->port, \
+			result, STRERROR(result));
+	}
+	else
+	{
+		pInBuff = in_buff;
+		result = fdfs_recv_response(conn, \
+				&pInBuff, sizeof(in_buff), &in_bytes);
 	}
 
+	if (new_connection)
+	{
+		tracker_disconnect_server_ex(conn, result != 0);
+	}
+
+	if (result != 0)
+	{
+		return result;
+	}
+
+	if (in_bytes != TRACKER_QUERY_STORAGE_STORE_BODY_LEN)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"tracker server %s:%d response data " \
+			"length: "INT64_PRINTF_FORMAT" is invalid, " \
+			"expect length: %d", __LINE__, \
+			pTrackerServer->ip_addr, pTrackerServer->port, \
+			in_bytes, TRACKER_QUERY_STORAGE_STORE_BODY_LEN);
+		return EINVAL;
+	}
+
+	memcpy(group_name, in_buff, FDFS_GROUP_NAME_MAX_LEN);
+	*(group_name + FDFS_GROUP_NAME_MAX_LEN) = '\0';
+	memcpy(pStorageServer->ip_addr, in_buff + \
+			FDFS_GROUP_NAME_MAX_LEN, IP_ADDRESS_SIZE-1);
+	pStorageServer->port = (int)buff2long(in_buff + \
+				FDFS_GROUP_NAME_MAX_LEN + IP_ADDRESS_SIZE - 1);
+	*pstore_path_index = *(in_buff + FDFS_GROUP_NAME_MAX_LEN + \
+			 IP_ADDRESS_SIZE - 1 + FDFS_PROTO_PKG_LEN_SIZE);
+
 	/*result = storage_upload_by_filename1(pTrackerServer, \
-			&storageServer, store_path_index, \
+			&storageServer, pstore_path_index, \
 			local_filename, NULL, \
 			NULL, 0, group_name, file_id);*/
 	if (stat(local_filename, &stat_buf) != 0)
