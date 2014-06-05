@@ -364,128 +364,16 @@ static void upload_calculate()
 	return ;
 }
 
-static int storage_get_connection(ConnectionInfo *pTrackerServer, \
-		ConnectionInfo **ppStorageServer, const byte cmd, \
-		const char *group_name, const char *filename, \
-		ConnectionInfo *pNewStorage, bool *new_connection)
-{
-	int result;
-	bool new_tracker_connection;
-	ConnectionInfo *pNewTracker;
-	if (*ppStorageServer == NULL)
-	{
-		CHECK_CONNECTION(pTrackerServer, pNewTracker, result, \
-			new_tracker_connection);
-		if (cmd == TRACKER_PROTO_CMD_SERVICE_QUERY_FETCH_ONE)
-		{
-			result = tracker_query_storage_fetch(pNewTracker, \
-		                pNewStorage, group_name, filename);
-		}
-		else
-		{
-			result = tracker_query_storage_update(pNewTracker, \
-		                pNewStorage, group_name, filename);
-		}
-
-		if (new_tracker_connection)
-		{
-			tracker_disconnect_server_ex(pNewTracker, result != 0);
-		}
-
-		if (result != 0)
-		{
-			return result;
-		}
-
-		if ((*ppStorageServer=tracker_connect_server(pNewStorage, \
-			&result)) == NULL)
-		{
-			return result;
-		}
-
-		*new_connection = true;
-	}
-	else
-	{
-		if ((*ppStorageServer)->sock >= 0)
-		{
-			*new_connection = false;
-		}
-		else
-		{
-			if ((*ppStorageServer=tracker_connect_server( \
-				*ppStorageServer, &result)) == NULL)
-			{
-				return result;
-			}
-
-			*new_connection = true;
-		}
-	}
-
-	return 0;
-}
-
 static int storage_get_upload_connection(ConnectionInfo *pTrackerServer, \
 		ConnectionInfo **ppStorageServer, char *group_name, \
-		ConnectionInfo *pNewStorage, int *store_path_index, \
-		bool *new_connection)
+		ConnectionInfo *pNewStorage, int *store_path_index)
 {
 	int result;
-	bool new_tracker_connection;
-	ConnectionInfo *pNewTracker;
 
-	if (*ppStorageServer == NULL)
+	if ((*ppStorageServer=tracker_connect_server( \
+		*ppStorageServer, &result)) == NULL)
 	{
-		CHECK_CONNECTION(pTrackerServer, pNewTracker, result, \
-			new_tracker_connection);
-		if (*group_name == '\0')
-		{
-			result = tracker_query_storage_store_without_group( \
-				pNewTracker, pNewStorage, group_name, \
-				store_path_index);
-		}
-		else
-		{
-			result = tracker_query_storage_store_with_group( \
-				pNewTracker, group_name, pNewStorage, \
-				store_path_index);
-		}
-
-		if (new_tracker_connection)
-		{
-			tracker_disconnect_server_ex(pNewTracker, result != 0);
-		}
-
-		if (result != 0)
-		{
-			return result;
-		}
-
-		if ((*ppStorageServer=tracker_connect_server(pNewStorage, \
-			&result)) == NULL)
-		{
-			return result;
-		}
-
-		*new_connection = true;
-	}
-	else
-	{
-		if ((*ppStorageServer)->sock >= 0)
-		{
-			*new_connection = false;
-		}
-		else
-		{
-			if ((*ppStorageServer=tracker_connect_server( \
-				*ppStorageServer, &result)) == NULL)
-			{
-				return result;
-			}
-
-			*new_connection = true;
-		}
+		return result;
 	}
 
 	return 0;
@@ -538,18 +426,30 @@ static int upload_file_by_filename(char *local_filename)
 	TrackerHeader header;
 	char in_buff[sizeof(TrackerHeader) + \
 		TRACKER_QUERY_STORAGE_STORE_BODY_LEN];
-	bool new_connection;
 	ConnectionInfo *conn;
 	char *pInBuff;
 	int64_t in_bytes;
-
-	CHECK_CONNECTION(pTrackerServer, conn, result, new_connection);
 
 	memset(pStorageServer, 0, sizeof(ConnectionInfo));
 	pStorageServer->sock = -1;
 
 	memset(&header, 0, sizeof(header));
 	header.cmd = TRACKER_PROTO_CMD_SERVICE_QUERY_STORE_WITHOUT_GROUP_ONE;
+
+	do {
+		if (pTrackerServer->sock < 0) 
+		{ 
+			if ((conn=tracker_connect_server(
+				pTrackerServer, &result)) != NULL) 
+			{
+				return result;
+			}
+		}
+		else
+		{
+			conn = pTrackerServer;
+		}
+	} while (0);
 	if ((result=tcpsenddata_nb(conn->sock, &header, \
 			sizeof(header), g_fdfs_network_timeout)) != 0)
 	{
@@ -565,11 +465,6 @@ static int upload_file_by_filename(char *local_filename)
 		pInBuff = in_buff;
 		result = fdfs_recv_response(conn, \
 				&pInBuff, sizeof(in_buff), &in_bytes);
-	}
-
-	if (new_connection)
-	{
-		tracker_disconnect_server_ex(conn, result != 0);
 	}
 
 	if (result != 0)
@@ -636,10 +531,6 @@ static int upload_file_by_filename(char *local_filename)
 	char *p;
 	int64_t total_send_bytes;
 	char in_buff2[128];
-	//char *pInBuff;
-	//ConnectionInfo storageServer;
-	//bool new_connection;
-	bool bUploadSlave;
 	int new_store_path;
 	int master_filename_len;
 	int prefix_len;
@@ -664,19 +555,9 @@ static int upload_file_by_filename(char *local_filename)
 		prefix_len = 0;
 	}
 
-	bUploadSlave = (strlen(group_name) > 0 && master_filename_len > 0);
-	if (bUploadSlave)
-	{
-		if ((result=storage_get_connection(pTrackerServer, \
-			&pStorageServer, TRACKER_PROTO_CMD_SERVICE_QUERY_UPDATE, group_name, master_filename, \
-			&storageServer, &new_connection)) != 0)
-		{
-			return result;
-		}
-	}
-	else if ((result=storage_get_upload_connection(pTrackerServer, \
+	if ((result=storage_get_upload_connection(pTrackerServer, \
 		&pStorageServer, group_name, &storageServer, \
-		&new_store_path, &new_connection)) != 0)
+		&new_store_path)) == 0)
 	{
 		*group_name = '\0';
 		return result;
@@ -693,37 +574,13 @@ static int upload_file_by_filename(char *local_filename)
 	{
 	pHeader = (TrackerHeader *)out_buff;
 	p = out_buff + sizeof(TrackerHeader);
-	if (bUploadSlave)
-	{
-		long2buff(master_filename_len, p);
-		p += FDFS_PROTO_PKG_LEN_SIZE;
-	}
-	else
-	{
-		*p++ = (char)new_store_path;
-	}
+		
+	*p++ = (char)new_store_path;
 
 	long2buff(file_size, p);
 	p += FDFS_PROTO_PKG_LEN_SIZE;
 
-	if (bUploadSlave)
-	{
-		memset(p, 0, FDFS_FILE_PREFIX_MAX_LEN + \
-				FDFS_FILE_EXT_NAME_MAX_LEN);
-		if (prefix_len > FDFS_FILE_PREFIX_MAX_LEN)
-		{
-			prefix_len = FDFS_FILE_PREFIX_MAX_LEN;
-		}
-		if (prefix_len > 0)
-		{
-			memcpy(p, prefix_name, prefix_len);
-		}
-		p += FDFS_FILE_PREFIX_MAX_LEN;
-	}
-	else
-	{
-		memset(p, 0, FDFS_FILE_EXT_NAME_MAX_LEN);
-	}
+	memset(p, 0, FDFS_FILE_EXT_NAME_MAX_LEN);
 
 	if (file_ext_name != NULL)
 	{
@@ -740,13 +597,7 @@ static int upload_file_by_filename(char *local_filename)
 		}
 	}
 	p += FDFS_FILE_EXT_NAME_MAX_LEN;
-
-	if (bUploadSlave)
-	{
-		memcpy(p, master_filename, master_filename_len);
-		p += master_filename_len;
-	}
-
+		
 	long2buff((p - out_buff) + file_size - sizeof(TrackerHeader), \
 		pHeader->pkg_len);
 	pHeader->cmd = cmd;
@@ -839,10 +690,6 @@ static int upload_file_by_filename(char *local_filename)
 		}
 	}
 
-	if (new_connection)
-	{
-		tracker_disconnect_server_ex(pStorageServer, result != 0);
-	}
 /*storage_do_upload_file end*/
 
 	if (result == 0)
