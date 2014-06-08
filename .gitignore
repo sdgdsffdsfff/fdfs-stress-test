@@ -2,4 +2,6 @@
 *.log
 *.swp
 fdfs_stress_test
+fdfs_stress_test_file_list
 fdfs_nginx_stress_test
+temp
