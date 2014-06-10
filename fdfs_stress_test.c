@@ -99,6 +99,7 @@ typedef struct UPLOAD_TEST_FILE_INFO_T
 	struct aeEventLoop *eventLoop;
 	char *upload_filename;
 	TrackerHeader resp;
+	ConnectionInfo *recv_response_conn;
 	char *pInBuff;
 	TrackerHeader header;
 	char out_buff[512];
@@ -408,6 +409,7 @@ static void upload_calculate()
 
 static int upload_file_by_filename_nb(upload_test_file_info_t *upload_client,char *local_filename,aeEventLoop *eventLoop)
 {
+	//printf("upload_file_by_filename_nb\n");
 	if(upload_client == NULL)
 	{
 		upload_client = malloc(sizeof(*upload_client));
@@ -579,6 +581,7 @@ int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
 		return result;
 	}
 	*/
+	upload_client->recv_response_conn = pTrackerServer;
 
 	upload_client->data.buff = &upload_client->resp;
 	upload_client->data.need_size = sizeof(upload_client->resp);
@@ -596,7 +599,7 @@ int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
 
 static void fdfs_recv_response_nb2(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
-	printf("fdfs_recv_response_nb2\n");
+	//printf("fdfs_recv_response_nb2\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	if (upload_client->resp.status != 0)
@@ -655,13 +658,13 @@ static void fdfs_recv_response_nb2(struct aeEventLoop *eventLoop, int sockfd, vo
 		return ;
 	}*/
 
-	printf("%p %d\n",upload_client->pInBuff,upload_client->in_bytes);
+	//printf("%p %d\n",upload_client->pInBuff,upload_client->in_bytes);
 	upload_client->data.buff = upload_client->pInBuff;
 	upload_client->data.need_size = upload_client->in_bytes;
 	upload_client->data.total_size = 0;
 	upload_client->data.proc = fdfs_recv_response_nb3;
 	
-	if(aeCreateFileEvent(upload_client->eventLoop, upload_client->pTrackerServer->sock, AE_READABLE,nb_sock_recv_data,upload_client) != AE_OK)
+	if(aeCreateFileEvent(upload_client->eventLoop, upload_client->recv_response_conn->sock, AE_READABLE,nb_sock_recv_data,upload_client) != AE_OK)
 	{
 		logError(	"file :"__FILE__",line :%d"\
 			"create_tracker_service CreateFileEvent failed.");
@@ -670,7 +673,7 @@ static void fdfs_recv_response_nb2(struct aeEventLoop *eventLoop, int sockfd, vo
 }
 static void fdfs_recv_response_nb3(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
-	printf("fdfs_recv_response_nb3\n");
+	//printf("fdfs_recv_response_nb3\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	upload_client->proc(upload_client->eventLoop,0,upload_client,0);
@@ -840,7 +843,7 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 
 static void upload_file_by_filename4(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
-	printf("upload_file_by_filename4\n");
+	//printf("upload_file_by_filename4\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	int64_t total_send_bytes;
@@ -884,7 +887,7 @@ static void upload_file_by_filename4(struct aeEventLoop *eventLoop, int sockfd, 
 
 static void upload_file_by_filename5(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
-	printf("upload_file_by_filename5\n");
+	//printf("upload_file_by_filename5\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	char file_id[128];
@@ -910,7 +913,7 @@ static void upload_file_by_filename5(struct aeEventLoop *eventLoop, int sockfd, 
 
 		memcpy(upload_client->remote_filename, upload_client->in_buff2 + FDFS_GROUP_NAME_MAX_LEN, \
 			upload_client->in_bytes - FDFS_GROUP_NAME_MAX_LEN + 1);
-
+		result = 0;
 	} while (0);
 
 /*storage_do_upload_file end*/
@@ -940,15 +943,16 @@ static void upload_file_by_filename5(struct aeEventLoop *eventLoop, int sockfd, 
 		printf("s%d,f%d\n",success_count,__sync_add_and_fetch(&g_upload_test_info.fail_count,0));
 		fflush(stdout);
 	}
-	if(success_count + __sync_add_and_fetch(&g_upload_test_info.fail_count,0) == g_upload_test_info.name_counts - 1)
+	if(success_count + __sync_add_and_fetch(&g_upload_test_info.fail_count,0) == g_upload_test_info.upload_count)
 		upload_calculate();
 	else 
 		{
-			if(__sync_add_and_fetch(&g_upload_test_info.all_count,0) >= g_upload_test_info.name_counts)
+			if(__sync_add_and_fetch(&g_upload_test_info.all_count,0) >= g_upload_test_info.upload_count)
 				return ;
 			else
 			{
-				upload_client->upload_filename = g_upload_test_info.file_names[__sync_add_and_fetch(&g_upload_test_info.all_count,1)];
+				upload_client->upload_filename = g_upload_test_info.file_names[__sync_add_and_fetch(&g_upload_test_info.all_count,1) % \
+								g_upload_test_info.name_counts];
 				upload_file_by_filename_nb(upload_client,upload_client->upload_filename,eventLoop);
 			}
 		}
@@ -995,7 +999,8 @@ int upload_by_epoll(int file_num,int client_num)
 	}
 	for(i = 0; i != client_num; ++i)
 	{
-		upload_file_by_filename_nb(NULL,g_upload_test_info.file_names[i],g_upload_test_info_nb.eventLoop[(i % g_upload_test_info_nb.eventLoopCounts)]);
+		upload_file_by_filename_nb(NULL,g_upload_test_info.file_names[i % g_upload_test_info.name_counts], \
+			g_upload_test_info_nb.eventLoop[(i % g_upload_test_info_nb.eventLoopCounts)]);
 	}
 	g_upload_test_info.all_count += client_num;
 	g_upload_test_info.start_time = time(NULL);

@@ -10,8 +10,8 @@ void nb_sock_send_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	
 	data = &((data_t *)clientData)->data;
 
-	printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
-	fflush(stdout);
+	//printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
+	//fflush(stdout);
 	if((send_size = write(sockfd,(char*)(data->buff)+data->total_size,data->need_size-data->total_size)) == -1&&errno != EAGAIN)
 	{
 		if(errno != EAGAIN)
@@ -26,8 +26,8 @@ void nb_sock_send_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 		}
 		return ;
 	}
-	printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
-	fflush(stdout);
+	//printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
+	//fflush(stdout);
 	/*no need to do this*/
 	if(send_size == 0)
 	{
@@ -60,7 +60,7 @@ void nb_sock_recv_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	
 	data = &((data_t *)clientData)->data;
 	
-	printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
+	//printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
 	if((recv_size = read(sockfd,(char*)(data->buff)+data->total_size,data->need_size-data->total_size)) == -1)
 	{
 		if(errno != EAGAIN)
@@ -75,7 +75,7 @@ void nb_sock_recv_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 		}
 		return ;
 	}
-	printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
+	//printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
 	if(recv_size == 0)
 	{
 		logInfo(	"file: "__FILE__",line :%d, "\
