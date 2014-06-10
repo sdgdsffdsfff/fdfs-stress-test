@@ -98,6 +98,10 @@ typedef struct UPLOAD_TEST_FILE_INFO_T
 	void (*proc)(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask);
 	struct aeEventLoop *eventLoop;
 	char *upload_filename;
+	TrackerHeader resp;
+	char *pInBuff;
+	TrackerHeader header;
+	char out_buff[512];
 }upload_test_file_info_t;
 
 char *g_conf_filename;
@@ -128,6 +132,11 @@ download_test_info_t g_download_test_info;
 static int create_test_files(int file_num,int file_size);
 static void get_upload_file_names(char *dir_name);
 static void upload_calculate();
+int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
+		char **buff, const int buff_size, \
+		int64_t *in_bytes,upload_test_file_info_t *upload_client);
+static void fdfs_recv_response_nb2(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask);
+static void fdfs_recv_response_nb3(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask);
 static int upload_file_by_filename_nb(upload_test_file_info_t *upload_client,char *file_name,aeEventLoop *eventLoop);
 static void upload_file_by_filename2(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask);
 static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask);
@@ -400,7 +409,11 @@ static void upload_calculate()
 static int upload_file_by_filename_nb(upload_test_file_info_t *upload_client,char *local_filename,aeEventLoop *eventLoop)
 {
 	if(upload_client == NULL)
+	{
 		upload_client = malloc(sizeof(*upload_client));
+	}
+	memset(upload_client,0,sizeof(*upload_client));
+	upload_client->eventLoop = eventLoop;
 
 	upload_client->local_filename = local_filename;
 	//char group_name[FDFS_GROUP_NAME_MAX_LEN + 1];
@@ -493,14 +506,14 @@ static int upload_file_by_filename_nb(upload_test_file_info_t *upload_client,cha
 	//ConnectionInfo *pStorageServer = &storageServer;
 	//int *pstore_path_index = &store_path_index;
 		
-	TrackerHeader header;
+	//TrackerHeader header;
 	//ConnectionInfo *conn;
 
 	memset(&upload_client->storageServer, 0, sizeof(ConnectionInfo));
 	upload_client->storageServer.sock = -1;
 
-	memset(&header, 0, sizeof(header));
-	header.cmd = TRACKER_PROTO_CMD_SERVICE_QUERY_STORE_WITHOUT_GROUP_ONE;
+	memset(&upload_client->header, 0, sizeof(upload_client->header));
+	upload_client->header.cmd = TRACKER_PROTO_CMD_SERVICE_QUERY_STORE_WITHOUT_GROUP_ONE;
 
 	do {
 		if (upload_client->pTrackerServer->sock < 0) 
@@ -529,8 +542,8 @@ static int upload_file_by_filename_nb(upload_test_file_info_t *upload_client,cha
 	}
 	*/
 
-	upload_client->data.buff = &header;
-	upload_client->data.need_size = sizeof(header);
+	upload_client->data.buff = &upload_client->header;
+	upload_client->data.need_size = sizeof(upload_client->header);
 	upload_client->data.total_size = 0;
 	upload_client->data.proc = upload_file_by_filename2;
 	
@@ -548,13 +561,11 @@ int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
 		char **buff, const int buff_size, \
 		int64_t *in_bytes,upload_test_file_info_t *upload_client)
 {
-	int result;
-	bool bMalloced;
-
 	//result = fdfs_recv_header(pTrackerServer, in_bytes);
 	//int fdfs_recv_header(ConnectionInfo *pTrackerServer, int64_t *in_bytes)
-	TrackerHeader resp;
+	//TrackerHeader resp;
 
+	/*
 	if ((result=tcprecvdata_nb(pTrackerServer->sock, &resp, \
 		sizeof(resp), g_fdfs_network_timeout)) != 0)
 	{
@@ -567,74 +578,70 @@ int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
 		*in_bytes = 0;
 		return result;
 	}
+	*/
 
-	if (resp.status != 0)
+	upload_client->data.buff = &upload_client->resp;
+	upload_client->data.need_size = sizeof(upload_client->resp);
+	upload_client->data.total_size = 0;
+	upload_client->data.proc = fdfs_recv_response_nb2;
+	
+	if(aeCreateFileEvent(upload_client->eventLoop, pTrackerServer->sock, AE_READABLE,nb_sock_recv_data,upload_client) != AE_OK)
+	{
+		logError(	"file :"__FILE__",line :%d"\
+			"create_tracker_service CreateFileEvent failed.");
+		return 0;
+	}
+	return 0;
+}
+
+static void fdfs_recv_response_nb2(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
+{
+	printf("fdfs_recv_response_nb2\n");
+	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
+
+	if (upload_client->resp.status != 0)
 	{
 		logError("file: "__FILE__", line: %d, " \
 			"server: %s:%d, response status %d != 0", \
-			__LINE__, pTrackerServer->ip_addr, \
-			pTrackerServer->port, resp.status);
-
-		*in_bytes = 0;
-		return resp.status;
+			__LINE__, upload_client->pTrackerServer->ip_addr, \
+			upload_client->pTrackerServer->port, upload_client->resp.status);
+		upload_client->in_bytes = 0;
+		//return resp.status;
+		return ;
 	}
 
-	*in_bytes = buff2long(resp.pkg_len);
-	if (*in_bytes < 0)
+	upload_client->in_bytes = buff2long(upload_client->resp.pkg_len);
+	if (upload_client->in_bytes < 0)
 	{
 		logError("file: "__FILE__", line: %d, " \
 			"server: %s:%d, recv package size " \
 			INT64_PRINTF_FORMAT" is not correct", \
-			__LINE__, pTrackerServer->ip_addr, \
-			pTrackerServer->port, *in_bytes);
-		*in_bytes = 0;
-		return EINVAL;
+			__LINE__, upload_client->pTrackerServer->ip_addr, \
+			upload_client->pTrackerServer->port, upload_client->in_bytes);
+		upload_client->in_bytes = 0;
+		//return EINVAL;
+		return ;
 	}
 
-	return resp.status;
-
-	if (result != 0)
+	if (upload_client->in_bytes == 0)
 	{
-		return result;
+		//return 0;
+		return ;
 	}
 
-	if (*in_bytes == 0)
+	/*if (upload_client->in_bytes > buff_size)
 	{
-		return 0;
-	}
+		logError("file: "__FILE__", line: %d, " \
+			"server: %s:%d, recv body bytes: " \
+			INT64_PRINTF_FORMAT" exceed max: %d", \
+			__LINE__, upload_client->pTrackerServer->ip_addr, \
+			upload_client->pTrackerServer->port, upload_client->in_bytes, buff_size);
+		upload_client->in_bytes = 0;
+		//return ENOSPC;
+		return ;
+	}*/
 
-	if (*buff == NULL)
-	{
-		*buff = (char *)malloc((*in_bytes) + 1);
-		if (*buff == NULL)
-		{
-			*in_bytes = 0;
-
-			logError("file: "__FILE__", line: %d, " \
-				"malloc "INT64_PRINTF_FORMAT" bytes fail", \
-				__LINE__, (*in_bytes) + 1);
-			return errno != 0 ? errno : ENOMEM;
-		}
-
-		bMalloced = true;
-	}
-	else 
-	{
-		if (*in_bytes > buff_size)
-		{
-			logError("file: "__FILE__", line: %d, " \
-				"server: %s:%d, recv body bytes: " \
-				INT64_PRINTF_FORMAT" exceed max: %d", \
-				__LINE__, pTrackerServer->ip_addr, \
-				pTrackerServer->port, *in_bytes, buff_size);
-			*in_bytes = 0;
-			return ENOSPC;
-		}
-
-		bMalloced = false;
-	}
-
-	if ((result=tcprecvdata_nb(pTrackerServer->sock, *buff, \
+	/*if ((result=tcprecvdata_nb(upload_client->pTrackerServer->sock, *buff, \
 		*in_bytes, g_fdfs_network_timeout)) != 0)
 	{
 		logError("file: "__FILE__", line: %d, " \
@@ -644,16 +651,30 @@ int fdfs_recv_response_nb(ConnectionInfo *pTrackerServer, \
 			pTrackerServer->port, \
 			result, STRERROR(result));
 		*in_bytes = 0;
-		if (bMalloced)
-		{
-			free(*buff);
-			*buff = NULL;
-		}
-		return result;
+		//return result;
+		return ;
+	}*/
+
+	printf("%p %d\n",upload_client->pInBuff,upload_client->in_bytes);
+	upload_client->data.buff = upload_client->pInBuff;
+	upload_client->data.need_size = upload_client->in_bytes;
+	upload_client->data.total_size = 0;
+	upload_client->data.proc = fdfs_recv_response_nb3;
+	
+	if(aeCreateFileEvent(upload_client->eventLoop, upload_client->pTrackerServer->sock, AE_READABLE,nb_sock_recv_data,upload_client) != AE_OK)
+	{
+		logError(	"file :"__FILE__",line :%d"\
+			"create_tracker_service CreateFileEvent failed.");
+		return ;
 	}
+}
+static void fdfs_recv_response_nb3(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
+{
+	printf("fdfs_recv_response_nb3\n");
+	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	upload_client->proc(upload_client->eventLoop,0,upload_client,0);
-	return 0;
+	return ;
 }
 
 static void upload_file_by_filename2(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
@@ -661,13 +682,13 @@ static void upload_file_by_filename2(struct aeEventLoop *eventLoop, int sockfd, 
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	//char in_buff[sizeof(TrackerHeader) + TRACKER_QUERY_STORAGE_STORE_BODY_LEN];
-	char *pInBuff;
+	//char *pInBuff;
 	//int64_t in_bytes;
 
-	pInBuff = upload_client->in_buff;
+	upload_client->pInBuff = upload_client->in_buff;
 	upload_client->proc = upload_file_by_filename3;
 	fdfs_recv_response_nb(upload_client->conn, \
-		&pInBuff, sizeof(upload_client->in_buff), &upload_client->in_bytes, \
+		&upload_client->pInBuff, sizeof(upload_client->in_buff), &upload_client->in_bytes, \
 		upload_client);
 	return ;
 }
@@ -730,7 +751,7 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 	//const int64_t file_size = stat_buf.st_size;
 
 	TrackerHeader *pHeader;
-	char out_buff[512];
+	//char out_buff[512];
 	char *p;
 	//int new_store_path;
 
@@ -761,8 +782,8 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 
 	do
 	{
-		pHeader = (TrackerHeader *)out_buff;
-		p = out_buff + sizeof(TrackerHeader);
+		pHeader = (TrackerHeader *)upload_client->out_buff;
+		p = upload_client->out_buff + sizeof(TrackerHeader);
 		
 		*p++ = (char)store_path_index;
 
@@ -787,7 +808,7 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 		}
 		p += FDFS_FILE_EXT_NAME_MAX_LEN;
 		
-		long2buff((p - out_buff) + upload_client->stat_buf.st_size - sizeof(TrackerHeader), \
+		long2buff((p - upload_client->out_buff) + upload_client->stat_buf.st_size - sizeof(TrackerHeader), \
 			pHeader->pkg_len);
 		pHeader->cmd = cmd;
 		pHeader->status = 0;
@@ -803,8 +824,8 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 				result, STRERROR(result));
 			break;
 		}*/
-		upload_client->data.buff = out_buff;
-		upload_client->data.need_size = p - out_buff;
+		upload_client->data.buff = upload_client->out_buff;
+		upload_client->data.need_size = p - upload_client->out_buff;
 		upload_client->data.total_size = 0;
 		upload_client->data.proc = upload_file_by_filename4;
 	
@@ -819,9 +840,9 @@ static void upload_file_by_filename3(struct aeEventLoop *eventLoop, int sockfd, 
 
 static void upload_file_by_filename4(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
+	printf("upload_file_by_filename4\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
-	char in_buff2[128];
 	int64_t total_send_bytes;
 	const int upload_type = FDFS_UPLOAD_BY_FILE;
 	int result;
@@ -850,10 +871,10 @@ static void upload_file_by_filename4(struct aeEventLoop *eventLoop, int sockfd, 
 				break;
 			}
 		}
-		char *pInBuff = in_buff2;
+		upload_client->pInBuff = upload_client->in_buff2;
 		upload_client->proc = upload_file_by_filename5;
 		if ((result=fdfs_recv_response_nb(&upload_client->storageServer, \
-			&pInBuff, sizeof(in_buff2), &upload_client->in_bytes, \
+			&upload_client->pInBuff, sizeof(upload_client->in_buff2), &upload_client->in_bytes, \
 				upload_client)) != 0)
 		{
 			break;
@@ -863,6 +884,7 @@ static void upload_file_by_filename4(struct aeEventLoop *eventLoop, int sockfd, 
 
 static void upload_file_by_filename5(struct aeEventLoop *eventLoop, int sockfd, void *clientData, int mask)
 {
+	printf("upload_file_by_filename5\n");
 	upload_test_file_info_t *upload_client = (upload_test_file_info_t *)clientData;
 
 	char file_id[128];

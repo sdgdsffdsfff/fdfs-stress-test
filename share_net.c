@@ -10,8 +10,8 @@ void nb_sock_send_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	
 	data = &((data_t *)clientData)->data;
 
-	//printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
-	//fflush(stdout);
+	printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
+	fflush(stdout);
 	if((send_size = write(sockfd,(char*)(data->buff)+data->total_size,data->need_size-data->total_size)) == -1&&errno != EAGAIN)
 	{
 		if(errno != EAGAIN)
@@ -26,8 +26,8 @@ void nb_sock_send_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 		}
 		return ;
 	}
-	//printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
-	//fflush(stdout);
+	printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
+	fflush(stdout);
 	/*no need to do this*/
 	if(send_size == 0)
 	{
@@ -43,6 +43,11 @@ void nb_sock_send_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	if(data->need_size != data->total_size)
 		return ;
 	aeDeleteFileEvent(eventLoop,sockfd,AE_WRITABLE);
+	/*int i;
+	for(i = 0;i != data->need_size;++i)
+		printf("%p%d\n",clientData,*(char*)(data->buff+i));
+	printf("%p:send_size%d,total%d,need%d\n",clientData,send_size,data->total_size,data->need_size);
+	*/
 	if(data->proc != NULL)
 		data->proc(eventLoop,sockfd,clientData,AE_WRITABLE);
 	return ;
@@ -55,6 +60,7 @@ void nb_sock_recv_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	
 	data = &((data_t *)clientData)->data;
 	
+	printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
 	if((recv_size = read(sockfd,(char*)(data->buff)+data->total_size,data->need_size-data->total_size)) == -1)
 	{
 		if(errno != EAGAIN)
@@ -69,6 +75,7 @@ void nb_sock_recv_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 		}
 		return ;
 	}
+	printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
 	if(recv_size == 0)
 	{
 		logInfo(	"file: "__FILE__",line :%d, "\
@@ -83,6 +90,8 @@ void nb_sock_recv_data(struct aeEventLoop *eventLoop, int sockfd, void *clientDa
 	if(data->need_size != data->total_size)
 		return;
 	aeDeleteFileEvent(eventLoop,sockfd,AE_READABLE);
+	//printf("%p:%s\n",clientData,(char*)data->buff);
+	//printf("%p:recv_size%d,total%d,need%d\n",clientData,recv_size,data->total_size,data->need_size);
 	if(data->proc != NULL)	
 		data->proc(eventLoop,sockfd,clientData,AE_READABLE);
 	return;
